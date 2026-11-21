@@ -8,6 +8,7 @@ dependencies = [
     "aiohttp>=3.14.5",
     "fastapi>=0.165.0",
     "psycopg2-binary>=2.9.13",
+    "psycopg[binary]>=3.3.9",
     "pydantic>=2.14.4",
     "python-dotenv>=1.2.4",
     "sqlmodel>=0.0.50",
