@@ -124,13 +124,22 @@ def init_db() -> None:
 # NOTIFICATIONS (email and/or SMS to the salesperson)
 # =========================================================
 
+def _email_configured() -> bool:
+    return all(os.getenv(k) for k in ("SMTP_USER", "SMTP_PASSWORD", "NOTIFY_EMAIL_TO"))
+
+
+def _sms_configured() -> bool:
+    return all(
+        os.getenv(k)
+        for k in ("NOTIFY_SMS_TO", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER")
+    )
+
+
 def _send_email(subject: str, body: str) -> None:
     host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     user = os.getenv("SMTP_USER")
     password = os.getenv("SMTP_PASSWORD")
     to = os.getenv("NOTIFY_EMAIL_TO")
-    if not (host and user and password and to):
-        return
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = os.getenv("NOTIFY_EMAIL_FROM", user)
@@ -147,20 +156,29 @@ def _send_sms(body: str) -> None:
     sid = os.getenv("TWILIO_ACCOUNT_SID")
     token = os.getenv("TWILIO_AUTH_TOKEN")
     sender = os.getenv("TWILIO_PHONE_NUMBER")
-    if not (to and sid and token and sender):
-        return
     from twilio.rest import Client
 
     Client(sid, token).messages.create(to=to, from_=sender, body=body[:1500])
 
 
 def _notify_blocking(subject: str, body: str) -> None:
-    for label, send in (("email", lambda: _send_email(subject, body)),
-                        ("sms", lambda: _send_sms(f"{subject}\n{body}"))):
+    channels = []
+    if _email_configured():
+        channels.append(("email", lambda: _send_email(subject, body)))
+    if _sms_configured():
+        channels.append(("sms", lambda: _send_sms(f"{subject}\n{body}")))
+
+    if not channels:
+        print("Notification skipped: no channel set up. For email set SMTP_USER, "
+              "SMTP_PASSWORD and NOTIFY_EMAIL_TO. For SMS set NOTIFY_SMS_TO.")
+        return
+
+    for label, send in channels:
         try:
             send()
+            print(f"Notification sent by {label}")
         except Exception as e:
-            print(f"Notification ({label}) failed: {type(e).__name__}")
+            print(f"Notification ({label}) failed: {type(e).__name__}: {e}")
 
 
 def notify(subject: str, body: str) -> None:
