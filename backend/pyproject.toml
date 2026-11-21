@@ -12,6 +12,7 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "sqlmodel>=0.0.50",
     "twilio>=9.13.0",
+    "tzdata>=2026.6",
     "uvicorn>=0.54.0",
     "websockets>=17.4",
 ]

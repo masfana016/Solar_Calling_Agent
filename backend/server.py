@@ -5,7 +5,6 @@ import hmac
 import json
 import os
 import re
-import uuid
 from xml.sax.saxutils import quoteattr
 
 import aiohttp
@@ -17,7 +16,16 @@ from twilio.rest import Client as TwilioClient
 
 load_dotenv()
 
-from solar_functions import FUNCTION_MAP, is_do_not_call  # noqa: E402
+from solar_functions import (  # noqa: E402
+    FUNCTION_MAP,
+    TZ_NAME,
+    create_lead,
+    delete_lead,
+    get_lead,
+    init_db,
+    is_do_not_call,
+    today_text,
+)
 
 # =========================================================
 # CONFIG
@@ -57,9 +65,6 @@ if not PUBLIC_BASE_URL.startswith("https://"):
 validator = RequestValidator(TWILIO_AUTH_TOKEN)
 twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-# Leads waiting for or on a call. In memory only: fine for testing,
-# use a database before going live.
-LEADS: dict = {}
 PHONE_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 SEEN_LEADGEN: set = set()  # Facebook can send the same lead twice
 BACKGROUND_TASKS: set = set()
@@ -111,6 +116,8 @@ def build_config(lead):
             text.replace("{first_name}", first_name)
             .replace("{company}", COMPANY_NAME)
             .replace("{agent_name}", AGENT_NAME)
+            .replace("{today}", today_text())
+            .replace("{timezone}", TZ_NAME)
         )
 
     agent = config["agent"]
@@ -212,7 +219,7 @@ async def twilio_receiver(ws, audio_queue, call_ctx, ready):
             if event == "start":
                 start = data["start"]
                 params = start.get("customParameters", {})
-                call_ctx["lead"] = LEADS.get(params.get("lead_id", ""))
+                call_ctx["lead"] = await asyncio.to_thread(get_lead, params.get("lead_id", ""))
                 call_ctx["stream_sid"] = start["streamSid"]
                 ready.set()
 
@@ -301,16 +308,13 @@ async def start_call(name, phone, source):
     phone = normalize_phone(phone)
     if not phone:
         return 400, {"error": "phone must be in international format, like +923001234567"}
-    if is_do_not_call(phone):
+    if await asyncio.to_thread(is_do_not_call, phone):
         return 200, {"status": "skipped", "reason": "do_not_call"}
 
-    lead_id = uuid.uuid4().hex[:12]
-    LEADS[lead_id] = {
-        "id": lead_id,
-        "name": str(name or "").strip(),
-        "phone": phone,
-        "source": str(source or "unknown"),
-    }
+    lead = await asyncio.to_thread(
+        create_lead, str(name or "").strip(), phone, str(source or "unknown")
+    )
+    lead_id = lead["id"]
 
     try:
         call = await asyncio.to_thread(
@@ -321,11 +325,11 @@ async def start_call(name, phone, source):
             method="POST",
         )
     except Exception as e:
-        LEADS.pop(lead_id, None)
+        await asyncio.to_thread(delete_lead, lead_id)
         print(f"Twilio call failed: {type(e).__name__}")
         return 502, {"error": "could not place the call"}
 
-    print(f"Calling lead {lead_id} (source: {LEADS[lead_id]['source']}), call sid {call.sid}")
+    print(f"Calling lead {lead_id} (source: {lead['source']}), call sid {call.sid}")
     return 200, {"status": "calling", "lead_id": lead_id, "call_sid": call.sid}
 
 
@@ -441,7 +445,7 @@ async def twiml_outbound(request):
         return web.Response(status=403, text="Forbidden")
 
     lead_id = request.query.get("lead_id", "")
-    if lead_id not in LEADS:
+    if not await asyncio.to_thread(get_lead, lead_id):
         return web.Response(status=404, text="Unknown lead")
 
     ws_url = PUBLIC_BASE_URL.replace("https://", "wss://", 1) + "/media-stream"
@@ -473,6 +477,7 @@ def create_app():
 
 
 if __name__ == "__main__":
+    init_db()  # creates the tables in Supabase on first run
     port = int(os.getenv("PORT", 8080))
     if not FB_ENABLED:
         print("Facebook webhook is OFF (set FB_VERIFY_TOKEN, FB_PAGE_ACCESS_TOKEN and FB_APP_SECRET to turn it on)")
