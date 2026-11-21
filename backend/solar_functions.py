@@ -158,15 +158,15 @@ def _send_sms(body: str) -> None:
     sender = os.getenv("TWILIO_PHONE_NUMBER")
     from twilio.rest import Client
 
-    Client(sid, token).messages.create(to=to, from_=sender, body=body[:1500])
+    Client(sid, token).messages.create(to=to, from_=sender, body=body[:300])
 
 
-def _notify_blocking(subject: str, body: str) -> None:
+def _notify_blocking(subject: str, body: str, sms_text: Optional[str] = None) -> None:
     channels = []
     if _email_configured():
         channels.append(("email", lambda: _send_email(subject, body)))
     if _sms_configured():
-        channels.append(("sms", lambda: _send_sms(f"{subject}\n{body}")))
+        channels.append(("sms", lambda: _send_sms(sms_text or f"{subject}\n{body}")))
 
     if not channels:
         print("Notification skipped: no channel set up. For email set SMTP_USER, "
@@ -178,12 +178,16 @@ def _notify_blocking(subject: str, body: str) -> None:
             send()
             print(f"Notification sent by {label}")
         except Exception as e:
-            print(f"Notification ({label}) failed: {type(e).__name__}: {e}")
+            hint = ""
+            if label == "email" and isinstance(e, OSError):
+                hint = " (cannot reach the mail server: some hosts, including Railway on non-Pro plans, block SMTP)"
+            print(f"Notification ({label}) failed: {type(e).__name__}: {e}{hint}")
 
 
-def notify(subject: str, body: str) -> None:
-    """Fire and forget, so the caller never waits for an email to send."""
-    threading.Thread(target=_notify_blocking, args=(subject, body), daemon=True).start()
+def notify(subject: str, body: str, sms_text: Optional[str] = None) -> None:
+    """Fire and forget, so the caller never waits for an email or SMS to send.
+    sms_text is a one-line version for SMS, to keep it to a single message."""
+    threading.Thread(target=_notify_blocking, args=(subject, body, sms_text), daemon=True).start()
 
 
 # =========================================================
@@ -331,6 +335,7 @@ def save_qualification(
             "Hot solar lead",
             f"{name or 'A lead'} ({lead_phone}) sounds very interested.\n"
             f"Location: {location}\nMonthly bill: {monthly_bill}\nTimeline: {timeline}\nNotes: {notes}",
+            sms_text=f"Hot solar lead: {name or 'Lead'} {lead_phone}, {location}"[:160],
         )
     return {"status": "saved"}
 
@@ -441,6 +446,7 @@ def book_appointment(start: str = "", notes: str = "", lead_id: str = "", phone:
         f"Site survey booked: {when['day']} {when['time']}",
         f"{name or 'A lead'} ({lead_phone}) booked a site survey.\n"
         f"When: {when['day']} at {when['time']} ({TZ_NAME})\n\n{summary}",
+        sms_text=f"Survey booked {when['day']} {when['time']}: {name or 'Lead'} {lead_phone}"[:160],
     )
     return {"status": "booked", "day": when["day"], "time": when["time"]}
 
@@ -467,6 +473,7 @@ def request_callback(
         "Callback requested",
         f"{name or 'A lead'} ({lead_phone}) asked for a callback.\n"
         f"Preferred time: {preferred_time}\nReason: {reason}",
+        sms_text=f"Callback: {name or 'Lead'} {lead_phone}, {preferred_time}"[:160],
     )
     return {"status": "noted", "message": "A team member will follow up."}
 
