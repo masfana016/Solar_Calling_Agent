@@ -19,6 +19,7 @@ load_dotenv()
 from solar_functions import (  # noqa: E402
     FUNCTION_MAP,
     TZ_NAME,
+    answers_text,
     create_lead,
     delete_lead,
     get_lead,
@@ -36,8 +37,10 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 LEADS_API_KEY = os.getenv("LEADS_API_KEY")
-COMPANY_NAME = os.getenv("COMPANY_NAME", "Your Solar Company")
-AGENT_NAME = os.getenv("AGENT_NAME", "Sara")
+# Fixed names, written the way the voice should say them (Devanagari).
+# Change COMPANY_NAME to the real company name before going live.
+COMPANY_NAME = "सोलर कंपनी"
+AGENT_NAME = "अंजलि"
 
 # Facebook Lead Ads (optional: the webhook is switched on only if all three are set)
 FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN")
@@ -118,6 +121,8 @@ def build_config(lead):
             .replace("{agent_name}", AGENT_NAME)
             .replace("{today}", today_text())
             .replace("{timezone}", TZ_NAME)
+            # last, so nothing typed into the form can be swapped into the prompt
+            .replace("{form_details}", answers_text(lead.get("answers") or {}) or "none provided")
         )
 
     agent = config["agent"]
@@ -303,7 +308,7 @@ async def twilio_ws_handler(request):
 # OUTBOUND: /leads places the call, Twilio then asks /twiml-outbound what to do
 # =========================================================
 
-async def start_call(name, phone, source):
+async def start_call(name, phone, source, answers=None):
     """Shared by /leads and the Facebook webhook. Returns (http_status, body)."""
     phone = normalize_phone(phone)
     if not phone:
@@ -312,7 +317,7 @@ async def start_call(name, phone, source):
         return 200, {"status": "skipped", "reason": "do_not_call"}
 
     lead = await asyncio.to_thread(
-        create_lead, str(name or "").strip(), phone, str(source or "unknown")
+        create_lead, str(name or "").strip(), phone, str(source or "unknown"), answers
     )
     lead_id = lead["id"]
 
@@ -345,7 +350,9 @@ async def leads_handler(request):
     except Exception:
         return web.json_response({"error": "send a JSON body"}, status=400)
 
-    status, result = await start_call(body.get("name"), body.get("phone"), body.get("source"))
+    status, result = await start_call(
+        body.get("name"), body.get("phone"), body.get("source"), body.get("answers")
+    )
     return web.json_response(result, status=status)
 
 
@@ -398,7 +405,8 @@ async def process_facebook_lead(leadgen_id):
         print(f"Facebook lead {leadgen_id}: no phone number in the form")
         return
 
-    status, result = await start_call(name, phone, "facebook")
+    # every other question on the form (property, bill, city...) goes along as answers
+    status, result = await start_call(name, phone, "facebook", fields)
     print(f"Facebook lead {leadgen_id}: {result.get('status') or result.get('error')}")
 
 
