@@ -1,45 +1,27 @@
 {
     "type": "Settings",
     "audio": {
-        "input": {
-            "encoding": "mulaw",
-            "sample_rate": 8000
-        },
-        "output": {
-            "encoding": "mulaw",
-            "sample_rate": 8000,
-            "container": "none"
-        }
+        "input": {"encoding": "mulaw", "sample_rate": 8000},
+        "output": {"encoding": "mulaw", "sample_rate": 8000, "container": "none"}
     },
     "agent": {
-        "language": "hi",
+        "language": "ur",
         "listen": {
-            "provider": {
-                "type": "deepgram",
-                "model": "nova-3",
-                "language": "hi",
-                "keyterms": [
-                    "सोलर",
-                    "सोलर पैनल",
-                    "किस्त",
-                    "साइट सर्वे",
-                    "बिजली का बिल",
-                    "यूनिट"
-                ]
-            }
+            "provider": {"type": "deepgram", "model": "nova-3", "language": "ur"}
         },
         "think": {
-            "provider": {
-                "type": "open_ai",
-                "model": "gpt-4o-mini",
-                "temperature": 0.3
-            }
+            "provider": {"type": "open_ai", "model": "gpt-4o-mini", "temperature": 0.3}
         },
         "speak": {
             "provider": {
-                "type": "deepgram",
-                "version": "v2",
-                "model": "flux-anjali-hi"
+                "type": "cartesia",
+                "model_id": "sonic-3.6",
+                "voice": {
+                    "mode": "id",
+                    "id": "01fc5e31-71e9-40dc-a220-06dbd4b4ed7e"
+                },
+                "language": "ur",
+                "speed": "normal"
             }
         }
     }
